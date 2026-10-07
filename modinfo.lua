@@ -1,6 +1,6 @@
 name = "我的牛牛HUD[服务器]"
 author = "哇唧唧哇"
-version = "1.0.1"
+version = "1.0.2"
 
 description = version .. "\n" .. [[
     一个轻量的训牛显示器！！！
