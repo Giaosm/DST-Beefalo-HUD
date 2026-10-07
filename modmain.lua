@@ -30,7 +30,9 @@ end
 --rider.lua 先 SetRider(建计时器)再推 mounted，故此处拿到的是新总时长
 local function push_ridetime(player, mount)
     local c = get_classified(player)
-    if c == nil then return end
+    if c == nil or mount == nil or not mount:IsValid() then return end
+    local rideable = mount.components.rideable
+    if rideable ~= nil and rideable.rider ~= player then return end--已下牛/换骑手，别再推旧数据
     local task = mount._bucktask
     c.bihud_ridetime_netvar:set(task ~= nil and GetTaskRemaining(task) or 0)
 end
@@ -64,7 +66,9 @@ local function on_obediencedelta(player, mount, data)
         c.bihud_obedience_netvar:set(mount.components.domesticatable:GetObedience())
     end
     if data ~= nil and data.new > data.old then
-        push_ridetime(player, mount)--喂食等加顺从度会让官方重算倒计时(beefalo.lua OnObedienceDelta)
+        --喂食等加顺从度会让官方重算倒计时(beefalo.lua OnObedienceDelta)，但同一事件的官方 handler
+        --与我们是并列监听、执行顺序不确定，故延到下一帧再读，确保拿到的是重算后的新任务
+        player:DoTaskInTime(0, function() push_ridetime(player, mount) end)
     end
 end
 
