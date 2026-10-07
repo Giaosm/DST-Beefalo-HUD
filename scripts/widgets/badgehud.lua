@@ -7,9 +7,10 @@ local Text = require "widgets/text"
 local RIDINGTIME_MAX = TUNING.BEEFALO_MAX_BUCK_TIME
 
 --x = 徽章展开后的位置(改布局只改这一处)
+--图标全部走官方资源：minimap = true 用 GetMinimapAtlas，其余用 GetInventoryItemAtlas
 local BADGE_CONFIGS = {
     {key = "domestication", x = -200, max = 100, colour = WEBCOLOURS.PURPLE, hide_time = .3,
-        atlas = "images/bihud_mouth.xml", image = "Default.tex", scale = 0.1},
+        image = "beefalo_domesticated.png", minimap = true, scale = 0.55},
     {key = "ridingtime",   x = -100, max = RIDINGTIME_MAX, colour = WEBCOLOURS.ORANGE, circular = true,
         image = "saddle_basic.tex", scale = 0.6},
     {key = "health",       x = 0, max = TUNING.BEEFALO_HEALTH, colour = WEBCOLOURS.FIREBRICK, anim = "status_health"},
@@ -24,21 +25,15 @@ local TEXT = {
     max_prefix = "Max\n",
     saddle_prefix = "鞍\n",
 }
---官方倾向 → 图标名(bihud_mouth.xml 内) + 显示名
-local TENDENCY_INFO = {
-    RIDER   = { icon = "Rider",   name = "骑行" },
-    ORNERY  = { icon = "Ornery",  name = "战斗" },
-    PUDGY   = { icon = "Pudgy",   name = "肥胖" },
-    DEFAULT = { icon = "Default", name = "普通" },
+--官方倾向 → 悬浮显示名(倾向不再占图标，改由文字提示)
+local TENDENCY_NAMES = {
+    RIDER   = "骑行",
+    ORNERY  = "战斗",
+    PUDGY   = "肥胖",
+    DEFAULT = "普通",
 }
 
-local function make_badge_num_text(badge)
-    local txt = badge:AddChild(Text(NUMBERFONT, 22, "0"))
-    txt:SetPosition(2.5, -40.5)
-    txt:SetColour(1, 1, 1, .8)
-    return txt
-end
-
+--悬浮提示文字：落在徽章正中的图标上(官方 maxnum 已屏蔽，不会来抢这个位置)
 local function make_badge_info(badge)
     local txt = badge:AddChild(Text(BODYTEXTFONT, 22, ""))
     txt:SetPosition(2.5, 0)
@@ -48,8 +43,8 @@ end
 
 local function create_badge_icon(badge, cfg)
     if not cfg.image then return end
-    --物品图集运行时解析，不硬编码 inventoryimagesN；mod 自绘图集走 cfg.atlas
-    local atlas = cfg.atlas or GetInventoryItemAtlas(cfg.image)
+    --官方图集运行时解析，不硬编码 atlas 路径
+    local atlas = cfg.minimap and GetMinimapAtlas(cfg.image) or GetInventoryItemAtlas(cfg.image)
     if not atlas then return end--解析不到就不画，避免 Image(nil, ...) 报错
     local icon = badge.underNumber:AddChild(Image(atlas, cfg.image))
     icon:SetScale(cfg.scale)
@@ -113,16 +108,14 @@ local BadgeHUD = Class(Widget, function(self, owner)
 
         set_colours(badge, cfg)
 
-        badge.bg = badge:AddChild(Image("images/bihud_hud.xml", "num_bg.tex"))
-        badge.bg:SetPosition(0.5, -40)
-        badge.bg:SetScale(.4, .4, 1)
+        --官方数字改为常显：Badge 的焦点回调会把它 Hide 掉，这里屏蔽
+        badge.num.Hide = function() end
+        badge.num:Show()
 
-        badge.bg.num = make_badge_num_text(badge)
-
-        --官方 Badge 自带悬浮文字(num/maxnum)与我们 info 同位置会重叠：Show 空实现 + Hide，只留我们的
-        for _, w in ipairs({ badge.num, badge.maxnum }) do
-            w.Show = function() end
-            w:Hide()
+        --官方 maxnum 会在悬浮时于图标正中弹出"Max:xxx"，这个不要
+        if badge.maxnum then
+            badge.maxnum.Show = function() end
+            badge.maxnum:Hide()
         end
 
         badge.icon = create_badge_icon(badge, cfg)
@@ -131,8 +124,7 @@ local BadgeHUD = Class(Widget, function(self, owner)
         badge:SetOnGainFocus(function()
             badge:SetScale(1.1)
             badge.info:Show()
-            --可能构造后才建出来，悬浮时按老版本做法再压一次
-            if badge.num then badge.num:Hide() end
+            --maxnum 可能构造后才建出来，悬浮时再压一次
             if badge.maxnum then badge.maxnum:Hide() end
         end)
         badge:SetOnLoseFocus(function()
@@ -272,9 +264,9 @@ function BadgeHUD:RefreshDomestication(mount)
     local c = self._cache
     if v.domestication ~= c.domestication then
         c.domestication = v.domestication
-        local pct = v.domestication * 100
-        self.badges.domestication.bg.num:SetString(string.format("%.2f", pct))
+        --先 SetPercent：官方内部会写一次 num，再覆盖成我们要的格式
         self.badges.domestication:SetPercent(v.domestication, 100)
+        self.badges.domestication.num:SetString(string.format("%.1f", v.domestication * 100))
     end
 end
 
@@ -283,9 +275,7 @@ function BadgeHUD:RefreshTendency(mount)
     local c = self._cache
     if v.tendency ~= c.tendency then
         c.tendency = v.tendency
-        local info = TENDENCY_INFO[v.tendency] or TENDENCY_INFO.DEFAULT
-        self.badges.domestication.icon:SetTexture("images/bihud_mouth.xml", info.icon .. ".tex")
-        self.badges.domestication.info:SetString(info.name)
+        self.badges.domestication.info:SetString(TENDENCY_NAMES[v.tendency] or TENDENCY_NAMES.DEFAULT)
     end
 end
 
@@ -295,8 +285,8 @@ function BadgeHUD:RefreshObedience(mount)
     if v.obedience ~= c.obedience then
         c.obedience = v.obedience
         local pct = math.floor(v.obedience * 100)
-        self.badges.obedience.bg.num:SetString(tostring(pct))
         self.badges.obedience:SetPercent(v.obedience, 100)
+        self.badges.obedience.num:SetString(tostring(pct))
         self.badges.obedience.info:SetString(TEXT.max_prefix .. "100")
     end
 end
@@ -307,8 +297,8 @@ function BadgeHUD:RefreshHealth(mount)
     if v.health ~= c.health or v.health_max ~= c.health_max then
         c.health = v.health
         c.health_max = v.health_max
-        self.badges.health.bg.num:SetString(tostring(math.floor(v.health)))
         self.badges.health:SetPercent(v.health / v.health_max, v.health_max)
+        self.badges.health.num:SetString(tostring(math.floor(v.health)))
         self.badges.health.info:SetString(TEXT.max_prefix .. math.floor(v.health_max))
     end
 end
@@ -319,8 +309,8 @@ function BadgeHUD:RefreshHunger(mount)
     if v.hunger ~= c.hunger or v.hunger_max ~= c.hunger_max then
         c.hunger = v.hunger
         c.hunger_max = v.hunger_max
-        self.badges.hunger.bg.num:SetString(tostring(math.floor(v.hunger)))
         self.badges.hunger:SetPercent(v.hunger / v.hunger_max, v.hunger_max)
+        self.badges.hunger.num:SetString(tostring(math.floor(v.hunger)))
         self.badges.hunger.info:SetString(TEXT.max_prefix .. math.floor(v.hunger_max))
     end
 end
@@ -331,8 +321,8 @@ function BadgeHUD:RefreshRidingTime(mount)
     if v.ridingtime ~= c.ridingtime then
         c.ridingtime = v.ridingtime
         local time = math.floor(v.ridingtime)
-        self.badges.ridingtime.bg.num:SetString(tostring(time))
         self.badges.ridingtime:SetPercent(v.ridingtime / RIDINGTIME_MAX, RIDINGTIME_MAX)
+        self.badges.ridingtime.num:SetString(tostring(time))
     end
 end
 

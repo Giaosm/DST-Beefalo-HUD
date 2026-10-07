@@ -1,10 +1,3 @@
-Assets = {
-    Asset("ATLAS", "images/bihud_hud.xml"),
-    Asset("IMAGE", "images/bihud_hud.tex"),
-    Asset("ATLAS", "images/bihud_mouth.xml"),
-    Asset("IMAGE", "images/bihud_mouth.tex"),
-}
-
 local BadgeHUD = require("widgets/badgehud")
 local GetTaskRemaining = GLOBAL.GetTaskRemaining
 
