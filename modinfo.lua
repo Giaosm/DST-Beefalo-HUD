@@ -12,6 +12,7 @@ description = version .. "\n" .. [[
     拖拽后的位置会自动保存，下次游玩无需重新调整。
     
     附加功能：防止 Ctrl+点击 误伤已绑定的皮弗娄牛
+    （该开关是客户端配置，每个玩家自己在"模组设置"里调整，互不影响）
 ]]
 
 dst_compatible = true
@@ -40,9 +41,10 @@ configuration_options =
         hover = "启用后可用 Ctrl + 双击 强制攻击已绑定的皮弗娄牛。",
         options =
         {
-            {description = "开", data = true},
-            {description = "关", data = false},
+            {description = "开", data = true, hover = "客户端设置，每个玩家独立生效。"},
+            {description = "关", data = false, hover = "客户端设置，每个玩家独立生效。"},
         },
         default = false,
+        client = true,
     },
 }

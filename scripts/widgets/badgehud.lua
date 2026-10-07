@@ -3,11 +3,11 @@ local Image = require "widgets/image"
 local Badge = require "widgets/badge"
 local Text = require "widgets/text"
 
---上限取官方 TUNING，游戏调数值自动跟随
+--仅作徽章构造时的初始上限；实际总时长由服务端推送(见 RefreshRidingTime)
 local RIDINGTIME_MAX = TUNING.BEEFALO_MAX_BUCK_TIME
 
 --x = 徽章展开后的位置(改布局只改这一处)
---图标全部走官方资源：minimap = true 用 GetMinimapAtlas，其余用 GetInventoryItemAtlas
+--图标：minimap = true 走 GetMinimapAtlas，其余走 GetInventoryItemAtlas
 local BADGE_CONFIGS = {
     {key = "domestication", x = -200, max = 100, colour = WEBCOLOURS.PURPLE, hide_time = .3,
         image = "beefalo_domesticated.png", minimap = true, scale = 0.55},
@@ -20,12 +20,12 @@ local BADGE_CONFIGS = {
         anim = "status_hunger"},
 }
 
---文案集中在这里，便于修改/翻译
+--文案集中在这里
 local TEXT = {
     max_prefix = "Max\n",
     saddle_prefix = "鞍\n",
 }
---官方倾向 → 悬浮显示名(倾向不再占图标，改由文字提示)
+--官方倾向 → 悬浮显示名
 local TENDENCY_NAMES = {
     RIDER   = "骑行",
     ORNERY  = "战斗",
@@ -33,7 +33,7 @@ local TENDENCY_NAMES = {
     DEFAULT = "普通",
 }
 
---悬浮提示文字：落在徽章正中的图标上(官方 maxnum 已屏蔽，不会来抢这个位置)
+--悬浮提示文字：显示在徽章正中的图标上
 local function make_badge_info(badge)
     local txt = badge:AddChild(Text(BODYTEXTFONT, 22, ""))
     txt:SetPosition(2.5, 0)
@@ -43,39 +43,41 @@ end
 
 local function create_badge_icon(badge, cfg)
     if not cfg.image then return end
-    --官方图集运行时解析，不硬编码 atlas 路径
+    --官方图集运行时解析
     local atlas = cfg.minimap and GetMinimapAtlas(cfg.image) or GetInventoryItemAtlas(cfg.image)
-    if not atlas then return end--解析不到就不画，避免 Image(nil, ...) 报错
+    if not atlas then return end--解析不到就不画，避免 Image 报错
     local icon = badge.underNumber:AddChild(Image(atlas, cfg.image))
     icon:SetScale(cfg.scale)
     return icon
 end
 
---只处理带 anim 的徽章；无 anim/环形由官方 ctor 的 tint 上色
+--表盘颜色统一走 cfg.colour
 local function set_colours(badge, cfg)
     badge.anim:GetAnimState():SetMultColour(cfg.colour[1], cfg.colour[2], cfg.colour[3], 1)
 end
 
-local function get_key_values(mount)
+--数值全部来自本玩家的 player_classified(服务端同步)
+local function get_key_values(classified)
     local v = {}
-    if mount.bihud_domestication_netvar then
-        v.domestication = mount.bihud_domestication_netvar:value()
-        v.tendency = mount.bihud_tendency_netvar:value()
-        v.obedience = mount.bihud_obedience_netvar:value()
+    if classified == nil then return v end
+    if classified.bihud_domestication_netvar then
+        v.domestication = classified.bihud_domestication_netvar:value()
+        v.tendency = classified.bihud_tendency_netvar:value()
+        v.obedience = classified.bihud_obedience_netvar:value()
     end
-    if mount.bihud_health_c_netvar then
-        v.health = mount.bihud_health_c_netvar:value()
-        v.health_max = mount.bihud_health_m_netvar:value()
+    if classified.bihud_health_c_netvar then
+        v.health = classified.bihud_health_c_netvar:value()
+        v.health_max = classified.bihud_health_m_netvar:value()
     end
-    if mount.bihud_hunger_c_netvar then
-        v.hunger = mount.bihud_hunger_c_netvar:value()
-        v.hunger_max = mount.bihud_hunger_m_netvar:value()
+    if classified.bihud_hunger_c_netvar then
+        v.hunger = classified.bihud_hunger_c_netvar:value()
+        v.hunger_max = classified.bihud_hunger_m_netvar:value()
     end
-    if mount.bihud_ridingtime_netvar then
-        v.ridingtime = mount.bihud_ridingtime_netvar:value()
+    if classified.bihud_ridetime_netvar then
+        v.ridetime = classified.bihud_ridetime_netvar:value()
     end
-    if mount.bihud_saddle_use_netvar then
-        v.saddle_use = mount.bihud_saddle_use_netvar:value()
+    if classified.bihud_saddle_use_netvar then
+        v.saddle_use = classified.bihud_saddle_use_netvar:value()
     end
     return v
 end
@@ -108,11 +110,11 @@ local BadgeHUD = Class(Widget, function(self, owner)
 
         set_colours(badge, cfg)
 
-        --官方数字改为常显：Badge 的焦点回调会把它 Hide 掉，这里屏蔽
+        --官方数字常显：Badge 的焦点回调会 Hide 它，这里屏蔽
         badge.num.Hide = function() end
         badge.num:Show()
 
-        --官方 maxnum 会在悬浮时于图标正中弹出"Max:xxx"，这个不要
+        --官方 maxnum 悬浮时会弹出"Max:xxx"，屏蔽掉
         if badge.maxnum then
             badge.maxnum.Show = function() end
             badge.maxnum:Hide()
@@ -259,19 +261,19 @@ function BadgeHUD:Hide()
     end)
 end
 
-function BadgeHUD:RefreshDomestication(mount)
-    local v = get_key_values(mount)
+function BadgeHUD:RefreshDomestication(v)
+    v = v or get_key_values(self.player_classified)
     local c = self._cache
     if v.domestication ~= c.domestication then
         c.domestication = v.domestication
-        --先 SetPercent：官方内部会写一次 num，再覆盖成我们要的格式
+        --先 SetPercent(官方会写一次 num)，再覆盖成我们的格式
         self.badges.domestication:SetPercent(v.domestication, 100)
         self.badges.domestication.num:SetString(string.format("%.1f", v.domestication * 100))
     end
 end
 
-function BadgeHUD:RefreshTendency(mount)
-    local v = get_key_values(mount)
+function BadgeHUD:RefreshTendency(v)
+    v = v or get_key_values(self.player_classified)
     local c = self._cache
     if v.tendency ~= c.tendency then
         c.tendency = v.tendency
@@ -279,8 +281,8 @@ function BadgeHUD:RefreshTendency(mount)
     end
 end
 
-function BadgeHUD:RefreshObedience(mount)
-    local v = get_key_values(mount)
+function BadgeHUD:RefreshObedience(v)
+    v = v or get_key_values(self.player_classified)
     local c = self._cache
     if v.obedience ~= c.obedience then
         c.obedience = v.obedience
@@ -291,10 +293,11 @@ function BadgeHUD:RefreshObedience(mount)
     end
 end
 
-function BadgeHUD:RefreshHealth(mount)
-    local v = get_key_values(mount)
+--上限还没到位(或组件缺失)时跳过，避免 0/0 算出 NaN
+function BadgeHUD:RefreshHealth(v)
+    v = v or get_key_values(self.player_classified)
     local c = self._cache
-    if v.health ~= c.health or v.health_max ~= c.health_max then
+    if (v.health ~= c.health or v.health_max ~= c.health_max) and (v.health_max or 0) > 0 then
         c.health = v.health
         c.health_max = v.health_max
         self.badges.health:SetPercent(v.health / v.health_max, v.health_max)
@@ -303,10 +306,11 @@ function BadgeHUD:RefreshHealth(mount)
     end
 end
 
-function BadgeHUD:RefreshHunger(mount)
-    local v = get_key_values(mount)
+--上限还没到位时跳过，避免 0/0 算出 NaN
+function BadgeHUD:RefreshHunger(v)
+    v = v or get_key_values(self.player_classified)
     local c = self._cache
-    if v.hunger ~= c.hunger or v.hunger_max ~= c.hunger_max then
+    if (v.hunger ~= c.hunger or v.hunger_max ~= c.hunger_max) and (v.hunger_max or 0) > 0 then
         c.hunger = v.hunger
         c.hunger_max = v.hunger_max
         self.badges.hunger:SetPercent(v.hunger / v.hunger_max, v.hunger_max)
@@ -315,19 +319,40 @@ function BadgeHUD:RefreshHunger(mount)
     end
 end
 
-function BadgeHUD:RefreshRidingTime(mount)
-    local v = get_key_values(mount)
+function BadgeHUD:RefreshRidingTime(v)
+    v = v or get_key_values(self.player_classified)
     local c = self._cache
-    if v.ridingtime ~= c.ridingtime then
-        c.ridingtime = v.ridingtime
-        local time = math.floor(v.ridingtime)
-        self.badges.ridingtime:SetPercent(v.ridingtime / RIDINGTIME_MAX, RIDINGTIME_MAX)
-        self.badges.ridingtime.num:SetString(tostring(time))
+    --服务端只在上牛/喂食重置时推一次；值变了才重新锚定，兜底轮询不会打乱倒计时
+    if v.ridetime ~= c.ridetime then
+        c.ridetime = v.ridetime
+        if v.ridetime > 0 then
+            self._ride_total = v.ridetime
+            self._ride_deadline = GetTime() + v.ridetime
+        else--下牛推 0：不锚定，免得算出 0/0
+            self._ride_total = nil
+            self._ride_deadline = nil
+        end
+        self._ride_shown = nil
+        self:UpdateRideCountdown()
     end
 end
 
-function BadgeHUD:RefreshSaddle(mount)
-    local v = get_key_values(mount)
+--倒计时本地逐帧算；上限用服务端推来的真实总时长
+function BadgeHUD:UpdateRideCountdown()
+    local deadline, total = self._ride_deadline, self._ride_total
+    if deadline == nil or total == nil or total <= 0 then return end
+    local remain = deadline - GetTime()
+    if remain < 0 then remain = 0 end
+    local sec = math.floor(remain)
+    if sec ~= self._ride_shown then
+        self._ride_shown = sec
+        self.badges.ridingtime:SetPercent(remain / total, total)
+        self.badges.ridingtime.num:SetString(tostring(sec))
+    end
+end
+
+function BadgeHUD:RefreshSaddle(v)
+    v = v or get_key_values(self.player_classified)
     local c = self._cache
     if v.saddle_use ~= c.saddle_use then
         c.saddle_use = v.saddle_use
@@ -352,20 +377,24 @@ function BadgeHUD:RefreshSaddleIcon(rider)
     end
 end
 
-function BadgeHUD:RefreshAll(mount)
-    self:RefreshDomestication(mount)
-    self:RefreshTendency(mount)
-    self:RefreshObedience(mount)
-    self:RefreshHealth(mount)
-    self:RefreshHunger(mount)
-    self:RefreshRidingTime(mount)
-    self:RefreshSaddle(mount)
+function BadgeHUD:RefreshAll()
+    --整包只读一次再分发；dirty 事件回调走无参路径(各自读一次)
+    local v = get_key_values(self.player_classified)
+    if next(v) == nil then return end--数据源还没就绪(classified 未挂上)，别拿 nil 去算
+    self:RefreshDomestication(v)
+    self:RefreshTendency(v)
+    self:RefreshObedience(v)
+    self:RefreshHealth(v)
+    self:RefreshHunger(v)
+    self:RefreshRidingTime(v)
+    self:RefreshSaddle(v)
     if self.owner and self.owner.owner then
         self:RefreshSaddleIcon(self.owner.owner.replica.rider)
     end
 end
 
-local MOUNT_DIRTY_EVENTS = {
+--这些 dirty 事件都来自本玩家的 player_classified
+local CLASSIFIED_DIRTY_EVENTS = {
     { "bihud_health_c_dirty", "RefreshHealth" },
     { "bihud_health_m_dirty", "RefreshHealth" },
     { "bihud_hunger_c_dirty", "RefreshHunger" },
@@ -374,39 +403,44 @@ local MOUNT_DIRTY_EVENTS = {
     { "bihud_obedience_dirty", "RefreshObedience" },
     { "bihud_tendency_dirty", "RefreshTendency" },
     { "bihud_saddle_use_dirty", "RefreshSaddle" },
-    { "bihud_ridingtime_dirty", "RefreshRidingTime" },
+    { "bihud_ridetime_dirty", "RefreshRidingTime" },
 }
 
-function BadgeHUD:AttachMount(mount)
-    if self._mount == mount then return end
-    self:DetachMount()
-    self._mount = mount
-    self._cache = {}
-    self._update_accum = 0
+--只挂一次，数据源不随上下牛变化
+function BadgeHUD:AttachClassified(classified)
+    if self.player_classified == classified then return end
+    self:DetachClassified()
+    if classified == nil then return end
+    self.player_classified = classified
 
-    if mount.bihud_health_c_netvar then
-        local fns = {}
-        for _, ev in ipairs(MOUNT_DIRTY_EVENTS) do
-            local fn = function() self[ev[2]](self, mount) end
-            fns[ev[1]] = fn
-            mount:ListenForEvent(ev[1], fn)
-        end
-        self._mount_listeners = fns
+    local fns = {}
+    for _, ev in ipairs(CLASSIFIED_DIRTY_EVENTS) do
+        local fn = function() self[ev[2]](self) end
+        fns[ev[1]] = fn
+        classified:ListenForEvent(ev[1], fn)
     end
-
-    self:RefreshAll(mount)
+    self._classified_listeners = fns
 end
 
-function BadgeHUD:DetachMount()
-    if not self._mount then return end
-    if self._mount_listeners then
-        for ev, fn in pairs(self._mount_listeners) do
-            self._mount:RemoveEventCallback(ev, fn)
+function BadgeHUD:DetachClassified()
+    if self.player_classified == nil then return end
+    if self._classified_listeners then
+        for ev, fn in pairs(self._classified_listeners) do
+            self.player_classified:RemoveEventCallback(ev, fn)
         end
-        self._mount_listeners = nil
+        self._classified_listeners = nil
     end
-    self._mount = nil
+    self.player_classified = nil
+end
+
+--下牛/换牛：清缓存 + 丢弃本地倒计时，下次上牛重新锚定
+function BadgeHUD:DetachRide()
+    self._ride_mount = nil
+    self._ride_deadline = nil
+    self._ride_total = nil
+    self._ride_shown = nil
     self._cache = {}
+    self._update_accum = 0
 end
 
 local UPDATE_INTERVAL = 0.5 -- 兜底轮询间隔，dirty 事件负责即时刷新
@@ -426,41 +460,49 @@ function BadgeHUD:OnUpdate(dt)
 
     local player = self.owner and self.owner.owner
     if not (player and player.replica and player.replica.rider) then
+        self:DetachRide()
         self:Hide()
         return
     end
 
+    --player_classified 与 HUD 的构造顺序不保证，这里懒挂一次
+    self:AttachClassified(player.player_classified)
+
     local rider = player.replica.rider
     if not rider:IsRiding() then
-        self:DetachMount()
+        self:DetachRide()
         self:Hide()
         return
     end
 
     local mount = rider:GetMount()
     if not (mount and mount:HasTag("beefalo")) then
-        self:DetachMount()
+        self:DetachRide()
         self:Hide()
         return
     end
 
     self:Show()
 
-    if self._mount ~= mount then
-        self:AttachMount(mount)
+    if self._ride_mount ~= mount then
+        self:DetachRide()
+        self._ride_mount = mount
+        self:RefreshAll()
         return
     end
+
+    self:UpdateRideCountdown()
 
     self._update_accum = (self._update_accum or 0) + dt
     if self._update_accum >= UPDATE_INTERVAL then
         self._update_accum = 0
-        self:RefreshAll(mount)
+        self:RefreshAll()
     end
 end
 
 --Kill 是引擎销毁入口：摘监听 + 取消未完成任务
 function BadgeHUD:Kill()
-    self:DetachMount()
+    self:DetachClassified()
     if self._follow_task then self._follow_task:Cancel(); self._follow_task = nil end
     if self._spread_task then self._spread_task:Cancel(); self._spread_task = nil end
     if self._done_task then self._done_task:Cancel(); self._done_task = nil end
