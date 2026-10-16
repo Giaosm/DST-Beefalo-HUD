@@ -1,12 +1,5 @@
---公共 API：写法参照"能力勋章"(GLOBAL.MedalAPI = env / TUNING.FUNCTIONAL_MEDAL_IS_OPEN = true)
-GLOBAL.setmetatable(env, { __index = function(t, k) return GLOBAL.rawget(GLOBAL, k) end })
-GLOBAL.BIHUD_API = env
-
 local BadgeHUD = require("widgets/badgehud")
 local GetTaskRemaining = GLOBAL.GetTaskRemaining
-
---其他 Mod 读这个开关即可判断本 Mod 是否开启(版本看 GLOBAL.BIHUD_API.modinfo.version)
-TUNING.BIHUD_IS_OPEN = true
 
 --骑牛数据挂在 player_classified(每玩家一份)，不给世界里每头牛挂 netvar
 AddPrefabPostInit("player_classified", function(inst)
